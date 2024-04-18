@@ -31,7 +31,7 @@ struct Cell
 
     // the position index of the cell on the sudoku board
     CELL_LOCATION location;
-    CELL_LOCATION targets[24];
+    std::array<CELL_LOCATION, 24> targets;
 
     // the value inside the particular cell
     unsigned int value : 4;
@@ -54,22 +54,6 @@ protected:
     Event SuccessResponseEvent;
     Event BoardGenerationFailedEvent;
 
-    flecs::world *board;
-
-    SudokuBoardGenerator(SudokuBoard &board)
-    {
-
-        AddEventHandler(SuccessResponseEvent, [&](std::string returnContent)
-                        { generateBoard(std::string(returnContent)); });
-
-        AddEventHandler(BoardGeneratedEvent, [](std::string returnContent) {
-
-        });
-
-        AddEventHandler(BoardGenerationFailedEvent, [](std::string returnString)
-                        { std::cout << "Board Generation Failed Successfully" << std::endl; });
-    }
-
     void sendRequest(std::string api_string)
     {
         WebRequestClient client = CreateWebRequestClient(api_string.c_str(), GET);
@@ -88,8 +72,24 @@ protected:
 
 public:
     SUDOKU_BOARD_GENERATOR_API type;
+    flecs::world *board;
 
     virtual void generateBoard(std::string boardJson) = 0;
+
+    SudokuBoardGenerator(flecs::world*& board)
+    {
+        this->board = board;
+
+        AddEventHandler(SuccessResponseEvent, [&](std::string returnContent)
+                        { generateBoard(std::string(returnContent)); });
+
+        AddEventHandler(BoardGeneratedEvent, [](std::string returnContent) {
+
+        });
+
+        AddEventHandler(BoardGenerationFailedEvent, [](std::string returnString)
+                        { std::cout << "Board Generation Failed Successfully" << std::endl; });
+    }
 
     void startGenerateBoard()
     {
@@ -106,16 +106,9 @@ public:
 
 class SudokuBoard
 {
-
-    flecs::world *cellsOnBoard;
-    SudokuBoardGenerator *generator;
-
 public:
-    void setBoard(flecs::world &newBoard)
-    {
-        delete cellsOnBoard;
-        cellsOnBoard = &newBoard;
-    }
+    flecs::world* cellsOnBoard;
+    SudokuBoardGenerator *generator;
 
     void loadSudoku()
     {
@@ -124,7 +117,7 @@ public:
 
     SudokuBoard(SUDOKU_BOARD_GENERATOR_API type = DOSUKU)
     {
-        // cellsOnBoard = std::make_unique<flecs::world>();
+        cellsOnBoard = new flecs::world();
         this->generator = generateBoardGenerator(*this, type);
         std::cout << "Generator Type: " << generator->type << std::endl;
     }
@@ -134,7 +127,7 @@ class DOSUKU_SudokuBoardGenerator : public SudokuBoardGenerator
 {
 
 public:
-    DOSUKU_SudokuBoardGenerator(SudokuBoard targetBoard) : SudokuBoardGenerator(targetBoard)
+    DOSUKU_SudokuBoardGenerator(flecs::world*& targetBoard) : SudokuBoardGenerator(targetBoard)
     {
         this->type = DOSUKU;
     }
@@ -142,14 +135,38 @@ public:
     void generateBoard(std::string boardJson)
     {
         RSJresource my_json(boardJson);
-        std::cout << my_json["newboard"]["grids"][0]["value"].size() << std::endl;
+        flecs::world& world = *board;
+        for(int y = 0; y < 9; y++){
+            for(int x = 0; x < 9; x++){
+                std::cout << boardJson << std::endl;
+                unsigned int value = my_json["newboard"]["grids"][0]["value"][y][x].as<int>();
+                if(value != 0){
+                    flecs::entity boardEntity = world.entity();
+                    Cell newCell;
+                    newCell.location.X = x + 1;
+                    newCell.location.Y = y + 1;
+                    newCell.value = value;
+                    boardEntity.add<Cell>();
+                    boardEntity.set<Cell>({
+                        newCell.location,
+                        {},
+                        value
+                    });
+                }
+            }
+        }
+        std::cout << "done assigning" << std::endl;
+        if(board != nullptr){
+            std::cout << "not null" << std::endl;
+        }
+        board->progress();
     }
 };
 
 class SUGOKU_SudokuBoardGenerator : public SudokuBoardGenerator
 {
 public:
-    SUGOKU_SudokuBoardGenerator(SudokuBoard targetBoard) : SudokuBoardGenerator(targetBoard)
+    SUGOKU_SudokuBoardGenerator(flecs::world*& targetBoard) : SudokuBoardGenerator(targetBoard)
     {
         this->type = SUGOKU;
     }
@@ -165,9 +182,9 @@ static SudokuBoardGenerator *generateBoardGenerator(SudokuBoard &targetBoard, SU
     switch (type)
     {
     case DOSUKU:
-        return new DOSUKU_SudokuBoardGenerator(targetBoard);
+        return new DOSUKU_SudokuBoardGenerator(targetBoard.cellsOnBoard);
     case SUGOKU:
-        return new SUGOKU_SudokuBoardGenerator(targetBoard);
+        return new SUGOKU_SudokuBoardGenerator(targetBoard.cellsOnBoard);
     default:
         return generateBoardGenerator(targetBoard);
     }
