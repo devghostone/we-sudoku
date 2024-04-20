@@ -115,6 +115,19 @@ public:
         this->generator->startGenerateBoard();
     };
 
+    void AddValue(unsigned int x, unsigned int y, unsigned int value)
+    {
+        flecs::entity boardEntity = cellsOnBoard->entity();
+        Cell newCell;
+        newCell.location.X = x + 1;
+        newCell.location.Y = y + 1;
+        newCell.value = value;
+        boardEntity.add<Cell>();
+        boardEntity.set<Cell>({newCell.location,
+                               {},
+                               value});
+    }
+
     SudokuBoard(SUDOKU_BOARD_GENERATOR_API type = DOSUKU)
     {
         cellsOnBoard = new flecs::world();
